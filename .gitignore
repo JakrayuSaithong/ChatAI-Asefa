@@ -1,0 +1,5 @@
+.env
+database/
+assets/img
+api/config.php
+api/db_connect.php
