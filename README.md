@@ -36,19 +36,6 @@ Asefa Chat AI เป็นระบบแชทบอทอัจฉริยะ
 - **API Provider**: OpenRouter API (สำหรับการเรียกใช้งาน AI Models)
 - **Library เพิ่มเติม**: `phpoffice/phpspreadsheet` (สำหรับอ่านไฟล์ Excel)
 
-## การติดตั้งและการรันระบบ (Setup & Installation)
-1. Clone โปรเจกต์นี้ลงในเซิร์ฟเวอร์ (เช่น XAMPP, Nginx, หรือ IIS)
-   ```bash
-   git clone https://github.com/JakrayuSaithong/ChatAI-Asefa.git
-   ```
-2. ทำการตั้งค่าฐานข้อมูลในไฟล์ `api/db_connect.php` หรือ `.env`
-3. รัน Composer เพื่อติดตั้ง Dependencies (โดยเฉพาะ PhpSpreadsheet)
-   ```bash
-   composer install
-   ```
-4. ติดตั้ง OpenRouter API Key ในไฟล์คอนฟิก (เช่น `api/config.php`)
-5. เปิดเบราว์เซอร์แล้วเข้าสู่ `http://localhost/asefaChatAI`
-
 ## ความปลอดภัยของระบบ (Security Measures)
 - ป้องกันการอัปโหลดไฟล์อันตราย (`.php`, `.exe`, `.sh`) ระดับ Signature/MIME Type
 - ตรวจสอบขนาดไฟล์ (File Size Limit)
