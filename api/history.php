@@ -72,16 +72,50 @@ if ($method === 'GET') {
         exit;
     }
 
-    $sql = "UPDATE ChatSessions SET IsActive = 0 WHERE SessionID = ? AND Username = ?";
-    $params = array($sessionId, $username);
-    $stmt = sqlsrv_query($conn, $sql, $params);
+    // Verify Ownership
+    $checkSql = "SELECT Username FROM ChatSessions WHERE SessionID = ?";
+    $checkStmt = sqlsrv_query($conn, $checkSql, array($sessionId));
+    if ($checkStmt === false || !($row = sqlsrv_fetch_array($checkStmt, SQLSRV_FETCH_ASSOC))) {
+        echo json_encode(['success' => false, 'error' => 'Session not found']);
+        exit;
+    }
+    if ($row['Username'] !== $username) {
+        echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+        exit;
+    }
+
+    // 1. Fetch & Delete Files
+    $sqlFiles = "SELECT Attachments FROM ChatMessages WHERE SessionID = ?";
+    $stmtFiles = sqlsrv_query($conn, $sqlFiles, array($sessionId));
+
+    if ($stmtFiles !== false) {
+        while ($row = sqlsrv_fetch_array($stmtFiles, SQLSRV_FETCH_ASSOC)) {
+            if (!empty($row['Attachments'])) {
+                $files = json_decode($row['Attachments'], true);
+                if (is_array($files)) {
+                    foreach ($files as $file) {
+                        $path = '../uploads/' . $file['stored_name'];
+                        if (file_exists($path)) {
+                            @unlink($path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Hard Delete Messages
+    $delMsgSql = "DELETE FROM ChatMessages WHERE SessionID = ?";
+    sqlsrv_query($conn, $delMsgSql, array($sessionId));
+
+    // 3. Hard Delete Session
+    $delSessSql = "DELETE FROM ChatSessions WHERE SessionID = ?";
+    $stmt = sqlsrv_query($conn, $delSessSql, array($sessionId));
 
     if ($stmt === false) {
         echo json_encode(['success' => false, 'error' => sqlsrv_errors()]);
         exit;
     }
 
-    // เช็กว่ามีแถวถูกอัปเดตจริงไหม (ช่วยบอกกรณี session ไม่ตรง user)
-    $rows = sqlsrv_rows_affected($stmt);
-    echo json_encode(['success' => ($rows > 0), 'affected' => $rows]);
+    echo json_encode(['success' => true]);
 }

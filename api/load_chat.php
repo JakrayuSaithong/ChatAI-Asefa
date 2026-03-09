@@ -10,7 +10,7 @@ if (!$sessionId) {
     exit;
 }
 
-$sql = "SELECT Role, Content, CreatedAt FROM ChatMessages WHERE SessionID = ? ORDER BY CreatedAt ASC";
+$sql = "SELECT Role, Content, CreatedAt, Attachments FROM ChatMessages WHERE SessionID = ? ORDER BY CreatedAt ASC, CASE WHEN Role = 'user' THEN 0 ELSE 1 END ASC";
 $params = array($sessionId);
 $stmt = sqlsrv_query($conn, $sql, $params);
 
@@ -21,10 +21,29 @@ if ($stmt === false) {
 
 $messages = [];
 while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+    $attachments = [];
+    if (!empty($row['Attachments'])) {
+        $files = json_decode($row['Attachments'], true);
+        if (is_array($files)) {
+            foreach ($files as &$file) {
+                // Check if file exists
+                $filePath = '../uploads/' . $file['stored_name']; // Relative to api/ folder
+                if (file_exists($filePath)) {
+                    $file['url'] = 'uploads/' . $file['stored_name']; // Public URL relative to index.php
+                    $file['exists'] = true;
+                } else {
+                    $file['exists'] = false;
+                }
+            }
+            $attachments = $files;
+        }
+    }
+
     $messages[] = [
         'role' => $row['Role'],
         'content' => $row['Content'],
-        'time' => $row['CreatedAt']
+        'time' => $row['CreatedAt'],
+        'attachments' => $attachments
     ];
 }
 

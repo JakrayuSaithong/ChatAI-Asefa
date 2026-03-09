@@ -1,30 +1,31 @@
 $(document).ready(function() {
-    // Check if already logged in (simple check)
-    // Note: A real app might verify token validity on load, but for now we trust storage until expiration check.
-    const token = localStorage.getItem('access_token');
-    const expireDate = localStorage.getItem('expire_date');
+    // Check if already logged in by user_username
+    const userName = localStorage.getItem('user_username');
 
     // --- Security: Disable Inspect & Right Click ---
-    document.addEventListener('contextmenu', event => event.preventDefault());
-    document.onkeydown = function(e) {
-        if (e.keyCode == 123) return false; // F12
-        if (e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false; // Ctrl+Shift+I
-        if (e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false; // Ctrl+Shift+J
-        if (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false; // Ctrl+U
-    };
+    // document.addEventListener('contextmenu', event => event.preventDefault());
+    // document.onkeydown = function(e) {
+    //     if (e.keyCode == 123) return false; // F12
+    //     if (e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false; // Ctrl+Shift+I
+    //     if (e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false; // Ctrl+Shift+J
+    //     if (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false; // Ctrl+U
+    // };
 
     // --- URL Token Login ---
     const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
+    const urlToken = urlParams.get('DataE');
 
     if (urlToken) {
         setLoading(true);
         fetchUserInfo(urlToken);
     }
 
-    if (token && expireDate && !urlToken) {
-        if (new Date(expireDate) > new Date()) {
-             window.location.href = 'index';
+    if (userName && !urlToken) {
+        // Only redirect to index if we are currently explicitly on login page
+        // to prevent infinite loops if the user is trying to access other pages
+        const currentPath = window.location.pathname;
+        if (currentPath.endsWith('login') || currentPath.endsWith('login.php')) {
+            window.location.href = 'index';
         }
     }
 
@@ -87,33 +88,33 @@ $(document).ready(function() {
 
     function fetchUserInfo(accessToken) {
         $.ajax({
-            url: 'https://innovation.asefa.co.th/applications/token/authtoken',
+            url: './api/checkDataE.php',
             method: 'POST',
             data: {
-                token: accessToken
+                DataE: accessToken
             },
             success: function(response) {
                 let data = (typeof response === 'string') ? JSON.parse(response) : response;
                 
                 // Response: { "ASEFA": true, "DATA": { "Users_Username": "...", "Users_Image": "..." } }
-                if (data.ASEFA === true && data.DATA) {
+                if (data.ASEFA === true && data.DATA && data.DATA.Users_Username) {
                     // Save to LocalStorage
-                    localStorage.setItem('access_token', accessToken);
                     localStorage.setItem('user_username', data.DATA.Users_Username);
                     localStorage.setItem('user_image', data.DATA.Users_Image);
                     
-                    // Expire handled by token.expire (int timestamp?) or just set a long local session
-                    // Prompt said "expire" in token object is 2147483647 (Integer max).
-                    // We can rely on API failure later if token expires.
-                    
-                    // Redirect
                     window.location.href = 'index';
                 } else {
-                    showError("Failed to retrieve user information.");
-                    setLoading(false);
+                    localStorage.clear();
+                    if (urlToken) {
+                        window.location.href = 'login';
+                    } else {
+                        showError("เข้าสู่ระบบล้มเหลว: ไม่พบข้อมูลผู้ใช้งาน");
+                        setLoading(false);
+                    }
                 }
             },
             error: function() {
+                localStorage.clear();
                 showError("Failed to validate token.");
                 setLoading(false);
             }

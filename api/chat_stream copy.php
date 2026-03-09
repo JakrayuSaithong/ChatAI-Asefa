@@ -1,10 +1,9 @@
 <?php
-
 /**
  * ASEFA AI Chat Stream API
  * 
  * @version 2.1.0 - Fixed Multimodal Support
- * @author ASEFA CSD Team
+ * @author ASEFA Development Team
  */
 
 header('Content-Type: text/event-stream');
@@ -87,20 +86,17 @@ $FALLBACK_MODELS = [
 // HELPER FUNCTIONS
 // ============================================================
 
-function sendSSE($type, $data)
-{
+function sendSSE($type, $data) {
     echo "data: " . json_encode(['type' => $type, 'data' => $data], JSON_UNESCAPED_UNICODE) . "\n\n";
     if (ob_get_level() > 0) ob_flush();
     flush();
 }
 
-function sendError($msg)
-{
+function sendError($msg) {
     sendSSE('error', $msg);
 }
 
-function debugLog($message, $data = null)
-{
+function debugLog($message, $data = null) {
     $logFile = __DIR__ . '/debug_multimodal.log';
     $timestamp = date('Y-m-d H:i:s');
     $logMessage = "[$timestamp] $message";
@@ -111,26 +107,22 @@ function debugLog($message, $data = null)
     file_put_contents($logFile, $logMessage, FILE_APPEND);
 }
 
-function supportsWebSearchTool($model, $webSearchModels)
-{
+function supportsWebSearchTool($model, $webSearchModels) {
     return in_array($model, $webSearchModels);
 }
 
-function hasBuiltInSearch($model, $builtInModels)
-{
+function hasBuiltInSearch($model, $builtInModels) {
     return in_array($model, $builtInModels);
 }
 
-function supportsVision($model, $visionModels)
-{
+function supportsVision($model, $visionModels) {
     return in_array($model, $visionModels);
 }
 
 /**
  * ตรวจสอบว่า messages มี multimodal content หรือไม่
  */
-function hasMultimodalContent($messages)
-{
+function hasMultimodalContent($messages) {
     foreach ($messages as $msg) {
         if (isset($msg['files']) && !empty($msg['files'])) {
             return true;
@@ -153,8 +145,7 @@ function hasMultimodalContent($messages)
 /**
  * แปลง Base64 image ให้อยู่ในรูปแบบที่ถูกต้อง
  */
-function formatImageUrl($base64Data)
-{
+function formatImageUrl($base64Data) {
     // ถ้าเป็น data URL อยู่แล้ว ใช้ได้เลย
     if (strpos($base64Data, 'data:') === 0) {
         return $base64Data;
@@ -166,8 +157,7 @@ function formatImageUrl($base64Data)
 /**
  * แก้ไข encoding issues ใน array
  */
-function fixEncoding($data)
-{
+function fixEncoding($data) {
     if (is_array($data)) {
         $result = [];
         foreach ($data as $key => $value) {
@@ -183,68 +173,6 @@ function fixEncoding($data)
         return mb_convert_encoding($data, 'UTF-8', 'UTF-8');
     }
     return $data;
-}
-
-/**
- * อ่านไฟล์ Excel และแปลงเป็น Text (CSV-like format)
- * ต้องติดตั้ง: composer require phpoffice/phpspreadsheet
- */
-function readExcelAsText($filePath, $maxRows = 500)
-{
-    // ตรวจสอบว่ามี PhpSpreadsheet หรือไม่
-    $autoloadPath = __DIR__ . '/../vendor/autoload.php';
-    if (!file_exists($autoloadPath)) {
-        return "[Error: PhpSpreadsheet not installed. Run: composer require phpoffice/phpspreadsheet]";
-    }
-
-    require_once $autoloadPath;
-
-    try {
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($filePath);
-        $output = "";
-
-        foreach ($spreadsheet->getSheetNames() as $sheetIndex => $sheetName) {
-            $sheet = $spreadsheet->getSheet($sheetIndex);
-            $highestRow = min($sheet->getHighestRow(), $maxRows);
-            $highestColumn = $sheet->getHighestColumn();
-
-            $output .= "=== Sheet: $sheetName ===\n";
-
-            for ($row = 1; $row <= $highestRow; $row++) {
-                $rowData = [];
-                $colIndex = 'A';
-
-                while ($colIndex != $highestColumn) {
-                    $cellValue = $sheet->getCell($colIndex . $row)->getFormattedValue();
-                    $rowData[] = $cellValue;
-                    $colIndex++;
-                }
-                // Last column
-                $rowData[] = $sheet->getCell($colIndex . $row)->getFormattedValue();
-
-                $output .= implode("\t| ", $rowData) . "\n";
-            }
-
-            if ($sheet->getHighestRow() > $maxRows) {
-                $output .= "... (truncated, showing first $maxRows rows of " . $sheet->getHighestRow() . ")\n";
-            }
-
-            $output .= "\n";
-        }
-
-        return $output;
-    } catch (Exception $e) {
-        return "[Error reading Excel: " . $e->getMessage() . "]";
-    }
-}
-
-/**
- * ตรวจสอบว่าเป็นไฟล์ Excel หรือไม่
- */
-function isExcelFile($filename)
-{
-    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-    return in_array($ext, ['xlsx', 'xls', 'xlsm']);
 }
 
 // ============================================================
@@ -324,55 +252,19 @@ $attachments = [];
 if (!empty($filesData)) {
     if (!is_dir('../uploads')) mkdir('../uploads', 0777, true);
 
-    // Whitelist ของนามสกุลไฟล์ที่อนุญาตให้อัปโหลด (ตรวจสอบความปลอดภัย)
-    $allowedImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
-    $allowedDocExts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'csv'];
-    $allowedExts = array_merge($allowedImageExts, $allowedDocExts);
-
     foreach ($filesData as $file) {
         $originalName = $file['name'] ?? 'unnamed';
-        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-
-        // ถ้าไม่มีนามสกุลเลย หรือไม่อยู่ใน whitelist ให้เซฟเป็น .txt เพื่อป้องกันการ Run script
-        if (empty($ext) || !in_array($ext, $allowedExts)) {
-            $ext = 'txt';
-        }
-
+        $ext = pathinfo($originalName, PATHINFO_EXTENSION) ?: 'bin';
         $storedName = date('YmdHis') . '_' . uniqid() . '.' . $ext;
         $targetPath = '../uploads/' . $storedName;
 
         $base64Val = $file['data'] ?? '';
-
-        // ตรวจสอบขนาดไฟล์คร่าวๆ จากความยาว base64 (อักษร 1.33 ตัว ต่อ 1 Byte)
-        // จำจัด 15MB = ~20 ล้านตัวอักษร Base64
-        if (strlen($base64Val) > 20000000) {
-            sendError("ไฟล์ขนาดใหญ่เกินกว่า 15MB");
-            exit;
-        }
-
         if (strpos($base64Val, 'base64,') !== false) {
             $base64Val = explode('base64,', $base64Val)[1];
         }
 
-        $decodedData = base64_decode($base64Val);
-
-        if (!empty($decodedData)) {
-            // Defense in Depth: วิเคราะห์เนื้อหาไฟล์ลึกถึงระดับ Signature (Magic Bytes)
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $realMimeType = $finfo->buffer($decodedData);
-
-            // ถ้านามสกุลบอกว่าเป็นรูปภาพ แต่ตัวเนื้อใน (Signature) ชี้ว่าเป็น Code สาย Text หรืออื่นๆ
-            if (in_array($ext, $allowedImageExts)) {
-                $validImageMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
-                if (!in_array($realMimeType, $validImageMimes)) {
-                    // หากปลอมแปลงมา จะถูกยึดนามสกุลและบังคับเปลี่ยนชื่อใหม่เป็น .txt แทนเพื่อความชัวร์
-                    $ext = 'txt';
-                    $storedName = date('YmdHis') . '_' . uniqid() . '.txt';
-                    $targetPath = '../uploads/' . $storedName;
-                }
-            }
-
-            file_put_contents($targetPath, $decodedData);
+        if (!empty($base64Val)) {
+            file_put_contents($targetPath, base64_decode($base64Val));
             $attachments[] = [
                 'original_name' => $originalName,
                 'stored_name' => $storedName,
@@ -394,7 +286,7 @@ if (!$sessionId) {
     $sql = "INSERT INTO ChatSessions (Username, Title) OUTPUT INSERTED.SessionID VALUES (?, ?)";
     $params = [$username, $title];
     $stmt = sqlsrv_query($conn, $sql, $params);
-
+    
     if ($stmt === false || !($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC))) {
         sendError("Failed to create session.");
         exit;
@@ -421,10 +313,10 @@ foreach ($messages as $index => &$msg) {
     if (($msg['role'] ?? '') === 'system') {
         continue;
     }
-
+    
     $contentParts = [];
     $originalText = '';
-
+    
     // ดึง text เดิมออกมา
     if (isset($msg['content'])) {
         if (is_string($msg['content'])) {
@@ -441,7 +333,7 @@ foreach ($messages as $index => &$msg) {
             }
         }
     }
-
+    
     // ถ้ามี text เดิม ให้เพิ่มเป็น part แรก
     if (!empty($originalText) && empty($contentParts)) {
         $contentParts[] = [
@@ -455,52 +347,28 @@ foreach ($messages as $index => &$msg) {
     // ============================================================
     if (isset($msg['files']) && !empty($msg['files'])) {
         debugLog("Processing files for message $index", ['fileCount' => count($msg['files'])]);
-
+        
         foreach ($msg['files'] as $file) {
             $fileType = $file['type'] ?? '';
             $fileName = $file['name'] ?? 'file';
             $fileData = $file['data'] ?? '';
-
+            
             debugLog("File info", ['name' => $fileName, 'type' => $fileType]);
-
+            
             // รูปภาพ
             if (strpos($fileType, 'image') === 0) {
                 $hasImages = true;
                 $imageUrl = formatImageUrl($fileData);
-
+                
                 $contentParts[] = [
                     'type' => 'image_url',
                     'image_url' => [
                         'url' => $imageUrl
                     ]
                 ];
-
+                
                 debugLog("Added image_url", ['urlPrefix' => substr($imageUrl, 0, 50) . '...']);
-            }
-            // Excel files (.xlsx, .xls)
-            elseif (isExcelFile($fileName)) {
-                // ต้อง save ไฟล์ก่อนแล้วค่อยอ่าน
-                $tempPath = sys_get_temp_dir() . '/' . uniqid('excel_') . '_' . $fileName;
-                $decoded = '';
-                if (strpos($fileData, 'base64,') !== false) {
-                    $decoded = base64_decode(explode('base64,', $fileData)[1]);
-                } elseif (!empty($fileData)) {
-                    $decoded = base64_decode($fileData);
-                }
-
-                if (!empty($decoded)) {
-                    file_put_contents($tempPath, $decoded);
-                    $excelContent = readExcelAsText($tempPath);
-                    unlink($tempPath); // ลบไฟล์ temp
-
-                    $contentParts[] = [
-                        'type' => 'text',
-                        'text' => "\n\n📊 **ไฟล์ Excel: {$fileName}**\n```\n" . $excelContent . "\n```"
-                    ];
-
-                    debugLog("Added Excel content", ['fileName' => $fileName, 'contentLength' => strlen($excelContent)]);
-                }
-            }
+            } 
             // ไฟล์ Text-based (txt, csv, json, etc.)
             else {
                 $decoded = '';
@@ -509,7 +377,7 @@ foreach ($messages as $index => &$msg) {
                 } elseif (!empty($fileData)) {
                     $decoded = base64_decode($fileData);
                 }
-
+                
                 if (!empty($decoded)) {
                     $contentParts[] = [
                         'type' => 'text',
@@ -518,11 +386,11 @@ foreach ($messages as $index => &$msg) {
                 }
             }
         }
-
+        
         // ลบ files key ออก
         unset($msg['files']);
     }
-
+    
     // ============================================================
     // Handle history attachments (Read from disk)
     // ============================================================
@@ -531,12 +399,12 @@ foreach ($messages as $index => &$msg) {
             $storedName = $att['stored_name'] ?? '';
             $originalName = $att['original_name'] ?? 'file';
             $path = '../uploads/' . $storedName;
-
+            
             if (file_exists($path)) {
                 $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
                 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
                 $textExts = ['txt', 'md', 'csv', 'json', 'js', 'php', 'html', 'css', 'py', 'c', 'cpp', 'java', 'xml', 'sql'];
-
+                
                 if (in_array($ext, $imageExts)) {
                     $hasImages = true;
                     $mimeTypes = [
@@ -549,19 +417,12 @@ foreach ($messages as $index => &$msg) {
                     ];
                     $mime = $mimeTypes[$ext] ?? 'image/jpeg';
                     $b64 = base64_encode(file_get_contents($path));
-
+                    
                     $contentParts[] = [
                         'type' => 'image_url',
                         'image_url' => [
                             'url' => "data:$mime;base64,$b64"
                         ]
-                    ];
-                } elseif (isExcelFile($originalName)) {
-                    // Excel files from history
-                    $excelContent = readExcelAsText($path);
-                    $contentParts[] = [
-                        'type' => 'text',
-                        'text' => "\n\n📊 **ไฟล์ Excel: {$originalName}**\n```\n" . $excelContent . "\n```"
                     ];
                 } elseif (in_array($ext, $textExts)) {
                     $textContent = file_get_contents($path);
@@ -572,10 +433,10 @@ foreach ($messages as $index => &$msg) {
                 }
             }
         }
-
+        
         unset($msg['attachments']);
     }
-
+    
     // ============================================================
     // Apply transformed content
     // ============================================================
@@ -611,13 +472,13 @@ if ($hasImages) {
     // มีรูปภาพ - ใช้ model ปกติ ไม่ต่อ :online
     $modelForAPI = $model;
     sendSSE('status', '🖼️ กำลังวิเคราะห์รูปภาพ...');
-
+    
     // ตรวจสอบว่า model รองรับ vision หรือไม่
     if (!supportsVision($model, $VISION_MODELS)) {
         sendError("Model $model ไม่รองรับการอ่านรูปภาพ กรุณาเลือก model อื่น");
         exit;
     }
-
+    
     debugLog("Using model without :online for images", ['model' => $modelForAPI]);
 } else {
     // ไม่มีรูปภาพ - ใช้ web search ได้
@@ -643,7 +504,7 @@ $responseContent = "";
 
 while ($retryCount < $maxRetries) {
     $ch = curl_init();
-
+    
     // Prepare payload
     $data = [
         'model' => $modelForAPI,
@@ -655,22 +516,22 @@ while ($retryCount < $maxRetries) {
     ];
 
     // Debug: Log messages structure (truncate long content)
-    $debugMessages = array_map(function ($msg) {
+    $debugMessages = array_map(function($msg) {
         $debugMsg = [
             'role' => $msg['role'] ?? 'unknown',
             'content_type' => is_array($msg['content'] ?? '') ? 'array' : 'string'
         ];
         if (is_array($msg['content'] ?? null)) {
             $debugMsg['content_parts'] = count($msg['content']);
-            $debugMsg['part_types'] = array_map(function ($p) {
-                return $p['type'] ?? 'unknown';
+            $debugMsg['part_types'] = array_map(function($p) { 
+                return $p['type'] ?? 'unknown'; 
             }, $msg['content']);
         } else {
             $debugMsg['content_length'] = strlen($msg['content'] ?? '');
         }
         return $debugMsg;
     }, $messages);
-
+    
     debugLog("API Request - Messages Structure", $debugMessages);
 
     // Debug: Log the request
@@ -699,46 +560,46 @@ while ($retryCount < $maxRetries) {
         'HTTP-Referer: ' . (defined('SITE_URL') ? SITE_URL : 'http://localhost'),
         'X-Title: ASEFA AI Assistant'
     ]);
-
+    
     // Ensure proper encoding before json_encode
     $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-
+    
     // Check for json_encode errors
     if ($jsonPayload === false) {
         $jsonError = json_last_error_msg();
         debugLog("JSON Encode Error", ['error' => $jsonError]);
-
+        
         // Try to fix encoding issues
         $data = fixEncoding($data);
         $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-
+        
         if ($jsonPayload === false) {
             sendError("ไม่สามารถประมวลผลข้อมูลได้: " . json_last_error_msg());
             exit;
         }
     }
-
+    
     curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
-
+    
     // Debug: Log payload size
     debugLog("Payload size", ['bytes' => strlen($jsonPayload), 'jsonError' => json_last_error_msg()]);
 
     // ============================================================
     // STREAMING RESPONSE HANDLER
     // ============================================================
-
+    
     $buffer = "";
     $isSearching = false;
     $errorResponse = "";
-
+    
     curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$responseContent, &$buffer, &$isSearching, &$errorResponse) {
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
+        
         if ($httpCode === 429) {
             $errorResponse = $data;
             return 0;
         }
-
+        
         if ($httpCode !== 200 && $httpCode !== 0) {
             $errorResponse .= $data;
             return strlen($data);
@@ -766,7 +627,7 @@ while ($retryCount < $maxRetries) {
                         sendSSE('content', $chunk);
                     }
                 }
-
+                
                 // Handle Web Search status
                 if (isset($json['choices'][0]['delta']['tool_calls'])) {
                     $toolCalls = $json['choices'][0]['delta']['tool_calls'];
@@ -779,7 +640,7 @@ while ($retryCount < $maxRetries) {
                         }
                     }
                 }
-
+                
                 // Handle finish reason
                 if (isset($json['choices'][0]['finish_reason'])) {
                     $finishReason = $json['choices'][0]['finish_reason'];
@@ -808,7 +669,7 @@ while ($retryCount < $maxRetries) {
     // ============================================================
     // ERROR HANDLING & RETRY
     // ============================================================
-
+    
     if ($httpCode === 429) {
         $retryCount++;
         if ($retryCount < $maxRetries) {
@@ -833,7 +694,7 @@ while ($retryCount < $maxRetries) {
     if (!$success || ($httpCode !== 200 && $httpCode !== 0)) {
         $errMsg = "API Error ($httpCode)";
         if ($curlError) $errMsg .= ": $curlError";
-
+        
         // Try to parse error response
         if (!empty($errorResponse)) {
             $json = json_decode($errorResponse, true);
@@ -841,7 +702,7 @@ while ($retryCount < $maxRetries) {
                 $errMsg = $json['error']['message'];
             }
         }
-
+        
         debugLog("API Error", ['error' => $errMsg, 'response' => $errorResponse]);
         sendError($errMsg);
         exit;
